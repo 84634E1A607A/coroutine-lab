@@ -33,20 +33,19 @@ namespace Coroutine
 
     extern "C" void CoroutineEntry();
 
-    extern "C" void CoroutineSwitch(SavedRegisters* save, SavedRegisters* load);
+    extern "C" void CoroutineSwitch(SavedRegisters *save, SavedRegisters *load);
 
     class CoroutineTaskBase
     {
-        Stack* const stack;
+        Stack *const stack;
         size_t stackSize;
         SavedRegisters registers;
-        CoroutinePool* pool;
-        SavedRegisters* poolRegisters;
+        CoroutinePool *pool;
+        SavedRegisters *poolRegisters;
 
     public:
-        CoroutineTaskBase(Stack* const stack, const size_t stackSize, CoroutinePool* pool,
-            SavedRegisters* poolRegisters) :
-            stack(stack), stackSize(stackSize), registers(), pool(pool), poolRegisters(poolRegisters)
+        CoroutineTaskBase(Stack *const stack, const size_t stackSize, CoroutinePool *pool,
+                          SavedRegisters *poolRegisters) : stack(stack), stackSize(stackSize), registers(), pool(pool), poolRegisters(poolRegisters)
         {
             // Align RSP
             registers.RSP = reinterpret_cast<uint64_t>(stack + stackSize) & ~0x0F;
@@ -57,28 +56,28 @@ namespace Coroutine
             // Set R12 to this
             registers.R12 = reinterpret_cast<uint64_t>(this);
 
-            void CoroutineMain(CoroutineTaskBase* task);
+            void CoroutineMain(CoroutineTaskBase * task);
 
             // Set R13 to main function
             registers.R13 = reinterpret_cast<uint64_t>(CoroutineMain);
         }
 
-        [[nodiscard]] SavedRegisters* GetRegisters()
+        [[nodiscard]] SavedRegisters *GetRegisters()
         {
             return &registers;
         }
 
-        [[nodiscard]] SavedRegisters* GetPoolRegisters() const
+        [[nodiscard]] SavedRegisters *GetPoolRegisters() const
         {
             return poolRegisters;
         }
 
-        [[nodiscard]] CoroutinePool* GetPool() const
+        [[nodiscard]] CoroutinePool *GetPool() const
         {
             return pool;
         }
 
-        [[nodiscard]] Stack* GetStackPointer() const
+        [[nodiscard]] Stack *GetStackPointer() const
         {
             return stack;
         }
@@ -93,17 +92,16 @@ namespace Coroutine
         virtual void Run() = 0;
     };
 
-    template<typename F, typename... Args>
+    template <typename F, typename... Args>
     class CoroutineTask final : public CoroutineTaskBase
     {
         F function;
         std::tuple<Args...> args;
 
     public:
-        CoroutineTask(Stack* const stack, const size_t stackSize, CoroutinePool* pool,
-            SavedRegisters* poolRegisters,
-            F function, Args... args) :
-            CoroutineTaskBase(stack, stackSize, pool, poolRegisters), function(function), args(args...)
+        CoroutineTask(Stack *const stack, const size_t stackSize, CoroutinePool *pool,
+                      SavedRegisters *poolRegisters,
+                      F function, Args... args) : CoroutineTaskBase(stack, stackSize, pool, poolRegisters), function(function), args(args...)
         {
         }
 
@@ -119,9 +117,9 @@ namespace Coroutine
         struct WaitStruct
         {
             std::chrono::time_point<std::chrono::system_clock> wakeUpTime;
-            CoroutineTaskBase* task;
+            CoroutineTaskBase *task;
 
-            bool operator<(const WaitStruct&rhs) const { return wakeUpTime > rhs.wakeUpTime; }
+            bool operator<(const WaitStruct &rhs) const { return wakeUpTime > rhs.wakeUpTime; }
         };
 
         std::stack<Stack *> stackPool;
@@ -144,7 +142,7 @@ namespace Coroutine
 
         ~CoroutinePool() = default;
 
-        template<typename F, typename... Args>
+        template <typename F, typename... Args>
         void New(F func, Args... args)
         {
             if (size == capacity)
@@ -161,7 +159,7 @@ namespace Coroutine
             ++size;
         }
 
-        SavedRegisters* GetPoolRegisters()
+        SavedRegisters *GetPoolRegisters()
         {
             return &poolRegisters;
         }
@@ -170,23 +168,26 @@ namespace Coroutine
         {
             while (true)
             {
-                if (readyQueue.empty())
+                if (!waitList.empty())
                 {
-                    if (waitList.empty())
-                    {
-                        break;
-                    }
-
                     const auto [wakeUpTime, task] = waitList.top();
 
-                    if (wakeUpTime > std::chrono::system_clock::now())
+                    if (wakeUpTime <= std::chrono::system_clock::now())
+                    {
+                        readyQueue.push(task);
+                        waitList.pop();
+                    }
+
+                    else if (readyQueue.empty())
                     {
                         usleep(500);
                         continue;
                     }
+                }
 
-                    readyQueue.push(task);
-                    waitList.pop();
+                else if (readyQueue.empty())
+                {
+                    break;
                 }
 
                 const auto task = readyQueue.front();
@@ -195,7 +196,8 @@ namespace Coroutine
                 task->Resume();
             }
 
-            while (!deleteQueue.empty()) {
+            while (!deleteQueue.empty())
+            {
                 auto task = deleteQueue.top();
                 deleteQueue.pop();
                 --size;
@@ -204,30 +206,30 @@ namespace Coroutine
             }
         }
 
-        void PushCoroutineToReadyQueue(CoroutineTaskBase* task)
+        void PushCoroutineToReadyQueue(CoroutineTaskBase *task)
         {
             readyQueue.push(task);
         }
 
-        void PushCoroutineToWaitList(CoroutineTaskBase* task, const std::chrono::milliseconds&duration)
+        void PushCoroutineToWaitList(CoroutineTaskBase *task, const std::chrono::milliseconds &duration)
         {
             waitList.push({std::chrono::system_clock::now() + duration, task});
         }
 
-        void PushCoroutineToDeleteQueue(CoroutineTaskBase* task)
+        void PushCoroutineToDeleteQueue(CoroutineTaskBase *task)
         {
             deleteQueue.push(task);
         }
     };
 
-    inline void CoroutineMain(CoroutineTaskBase* task)
+    inline void CoroutineMain(CoroutineTaskBase *task)
     {
         task->Run();
         task->GetPool()->PushCoroutineToDeleteQueue(task);
         CoroutineSwitch(task->GetRegisters(), task->GetPoolRegisters());
     }
 
-    extern "C" CoroutineTaskBase* CoroutineGetTask();
+    extern "C" CoroutineTaskBase *CoroutineGetTask();
 
     inline void Yield()
     {
@@ -254,4 +256,4 @@ namespace Coroutine
     }
 }
 
-#endif //COROUTINE_POOL_H
+#endif // COROUTINE_POOL_H
