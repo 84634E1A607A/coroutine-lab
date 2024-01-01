@@ -1,6 +1,6 @@
 # Coroutine Lab ICS THU CS
 
-实现了一个支持多实例的 CoroutinePool. 仅支持 SysV ABI.
+实现了一个支持多实例的 CoroutinePool. 仅支持 x64 Microsoft ABI 与 SysV ABI.
 
 Features:
 

@@ -29,11 +29,24 @@ namespace Coroutine
         uint64_t R14;
         uint64_t R15;
         uint64_t RIP;
+#ifdef _WIN64
+        uint64_t RDI;
+        uint64_t RSI;
+#endif
     };
 
+#ifndef _WIN64
     extern "C" void CoroutineEntry();
 
     extern "C" void CoroutineSwitch(SavedRegisters *save, SavedRegisters *load);
+#else
+    extern "C" void CoroutineEntry_MSx64();
+
+    extern "C" void CoroutineSwitch_MSx64(SavedRegisters *save, SavedRegisters *load);
+
+#define CoroutineEntry CoroutineEntry_MSx64
+#define CoroutineSwitch CoroutineSwitch_MSx64
+#endif
 
     class CoroutineTaskBase
     {
@@ -135,12 +148,26 @@ namespace Coroutine
         {
             for (int i = 0; i < capacity; ++i)
             {
+#ifndef _WIN64
                 auto stack = static_cast<Stack *>(std::aligned_alloc(1 << 16, DefaultStackSize));
+#else
+                auto stack = static_cast<Stack *>(_aligned_malloc(DefaultStackSize, 1 << 16));
+#endif
                 stackPool.push(stack);
             }
         }
 
-        ~CoroutinePool() = default;
+        ~CoroutinePool() {
+            while (!stackPool.empty()) {
+                auto stack = stackPool.top();
+                stackPool.pop();
+#ifndef _WIN64
+                delete stack;
+#else
+                _aligned_free(stack);
+#endif
+            }
+        }
 
         template <typename F, typename... Args>
         void New(F func, Args... args)
@@ -229,7 +256,13 @@ namespace Coroutine
         CoroutineSwitch(task->GetRegisters(), task->GetPoolRegisters());
     }
 
+#ifndef _WIN64
     extern "C" CoroutineTaskBase *CoroutineGetTask();
+#else
+    extern "C" CoroutineTaskBase *CoroutineGetTask_MSx64();
+
+#define CoroutineGetTask CoroutineGetTask_MSx64
+#endif
 
     inline void Yield()
     {
